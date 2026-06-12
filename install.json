@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "description": "tts-proxy 安装规则",
+  "rules": [
+    {
+      "type": "check_command",
+      "name": "确定python版本",
+      "candidates": ["python", "python3", "py"],
+      "version_args": ["--version"],
+      "recommended": ["3.10", "3.11"],
+      "supported": ["3.12"]
+    },
+    {
+      "type": "check_python_package",
+      "name": "检查PyTorch版本",
+      "package": "torch",
+      "min_version": "2.5.0",
+      "install_hint": {
+        "intro": "未检测到 PyTorch。请按你的环境选择一条安装命令：",
+        "commands": [
+          { "label": "CPU",       "cmd": "pip install torch" },
+          { "label": "CUDA 12.1", "cmd": "pip install torch --index-url https://download.pytorch.org/whl/cu121" },
+          { "label": "CUDA 11.8", "cmd": "pip install torch --index-url https://download.pytorch.org/whl/cu118" }
+        ],
+        "docs": "https://pytorch.org/get-started/locally/"
+      }
+    },
+    {
+      "type": "check_cuda",
+      "name": "检查CUDA版本",
+      "skip_os": ["mac"],
+      "min_version": "12.0",
+      "install_hint": {
+        "intro": "未检测到 CUDA 12+，请安装/升级 CUDA Toolkit：",
+        "commands": [
+          { "label": "Windows",  "cmd": "下载安装: https://developer.nvidia.com/cuda-downloads" },
+          { "label": "Ubuntu",   "cmd": "sudo apt install nvidia-cuda-toolkit  (或使用 NVIDIA 官方仓库装最新版)" }
+        ],
+        "docs": "https://docs.nvidia.com/cuda/cuda-installation-guide/"
+      }
+    }
+  ]
+}

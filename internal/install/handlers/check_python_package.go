@@ -46,7 +46,7 @@ func renderHint(h *InstallHint, pkg string) string {
 }
 
 // CheckPythonPackage 是 check_python_package 规则的处理器。
-func CheckPythonPackage(rule install.Rule) (string, error) {
+func CheckPythonPackage(rule install.Rule, _ *install.HandlerContext) (string, error) {
 	var spec CheckPythonPackageRule
 	if err := json.Unmarshal(rule.Raw, &spec); err != nil {
 		return "", fmt.Errorf("解析规则字段失败: %w", err)
@@ -85,6 +85,7 @@ print(v)
 `, spec.ImportAs)
 
 	cmd := exec.Command(pyName, "-c", script)
+	cmd.Env = utf8Env()
 	out, err := cmd.Output()
 	if err != nil {
 		stderr := ""

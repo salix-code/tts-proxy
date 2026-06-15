@@ -39,7 +39,7 @@ type CheckCommandRule struct {
 var versionRe = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
 
 // CheckCommand 是 check_command 规则的处理器。
-func CheckCommand(rule install.Rule) (string, error) {
+func CheckCommand(rule install.Rule, _ *install.HandlerContext) (string, error) {
 	var spec CheckCommandRule
 	if err := json.Unmarshal(rule.Raw, &spec); err != nil {
 		return "", fmt.Errorf("解析规则字段失败: %w", err)

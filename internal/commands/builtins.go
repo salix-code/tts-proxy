@@ -77,6 +77,10 @@ func RegisterBuiltins(r *Registry, reader *bufio.Reader, out io.Writer) {
 			runner.Register("check_command", handlers.CheckCommand)
 			runner.Register("check_python_package", handlers.CheckPythonPackage)
 			runner.Register("check_cuda", handlers.CheckCUDA)
+			runner.Register("create_uv_venv", handlers.CreateUVVenv)
+			runner.Register("install_uv_package", handlers.InstallUVPackage)
+			runner.Register("install_cuda_uv", handlers.InstallCUDAUV)
+			runner.Register("ensure_uv", handlers.EnsureUV)
 
 			confirm := makeYesNoConfirm(reader, out)
 			allOK, err := runner.Run(cfg, out, confirm)

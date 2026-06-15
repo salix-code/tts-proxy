@@ -3,40 +3,85 @@
   "description": "tts-proxy 安装规则",
   "rules": [
     {
-      "type": "check_command",
-      "name": "确定python版本",
-      "candidates": ["python", "python3", "py"],
-      "version_args": ["--version"],
-      "recommended": ["3.10", "3.11"],
-      "supported": ["3.12"]
-    },
-    {
-      "type": "check_python_package",
-      "name": "检查PyTorch版本",
-      "package": "torch",
-      "min_version": "2.5.0",
+      "type": "ensure_uv",
+      "name": "检查并按需安装 uv（未安装时询问 [Y/N] 后自动安装）",
+      "min_version": "0.4.0",
+      "auto_install": true,
       "install_hint": {
-        "intro": "未检测到 PyTorch。请按你的环境选择一条安装命令：",
+        "intro": "uv 不可用。如选择不自动安装，可手动执行：",
         "commands": [
-          { "label": "CPU",       "cmd": "pip install torch" },
-          { "label": "CUDA 12.1", "cmd": "pip install torch --index-url https://download.pytorch.org/whl/cu121" },
-          { "label": "CUDA 11.8", "cmd": "pip install torch --index-url https://download.pytorch.org/whl/cu118" }
+          { "label": "已安装-自升级", "cmd": "uv self update" },
+          { "label": "Windows",       "cmd": "powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\"" },
+          { "label": "macOS/Linux",   "cmd": "curl -LsSf https://astral.sh/uv/install.sh | sh" },
+          { "label": "pip",           "cmd": "pip install --upgrade uv" }
         ],
-        "docs": "https://pytorch.org/get-started/locally/"
+        "docs": "https://docs.astral.sh/uv/getting-started/installation/"
       }
     },
     {
       "type": "check_cuda",
-      "name": "检查CUDA版本",
+      "name": "判断可以安装 CUDA 吗（驱动支持的最高版本需 > 12.0）",
       "skip_os": ["mac"],
+      "fatal": true,
       "min_version": "12.0",
       "install_hint": {
-        "intro": "未检测到 CUDA 12+，请安装/升级 CUDA Toolkit：",
+        "intro": "未检测到可用的 CUDA：要求 nvcc 或 nvidia-smi 报告的 CUDA 版本 > 12.0。请安装/升级 NVIDIA 驱动或 CUDA Toolkit：",
         "commands": [
           { "label": "Windows",  "cmd": "下载安装: https://developer.nvidia.com/cuda-downloads" },
           { "label": "Ubuntu",   "cmd": "sudo apt install nvidia-cuda-toolkit  (或使用 NVIDIA 官方仓库装最新版)" }
         ],
         "docs": "https://docs.nvidia.com/cuda/cuda-installation-guide/"
+      }
+    },
+    {
+      "type": "create_uv_venv",
+      "name": "使用 uv 创建 Python 3.11 虚拟环境（位于 exe 所在目录）",
+      "python": "3.11",
+      "dir": ".venv",
+      "install_hint": {
+        "intro": "创建虚拟环境失败。请确认 uv 可正常工作，且本机能下载或定位 Python 3.11：",
+        "commands": [
+          { "label": "手动创建", "cmd": "uv venv --python 3.11 .venv" },
+          { "label": "查看可用 Python", "cmd": "uv python list" },
+          { "label": "安装 Python 3.11", "cmd": "uv python install 3.11" }
+        ],
+        "docs": "https://docs.astral.sh/uv/pip/environments/"
+      }
+    },
+    {
+      "type": "install_uv_package",
+      "name": "使用 uv 检查并安装 PyTorch（>= 2.5，使用 .venv 的 Python）",
+      "package": "torch",
+      "import_as": ["torch"],
+      "venv_dir": ".venv",
+      "min_version": "2.5.0",
+      "install_args": ["--index-url", "https://download.pytorch.org/whl/cu121"],
+      "spec": "torch>=2.5",
+      "install_hint": {
+        "intro": "PyTorch 安装失败。请按你的 CUDA 环境手动选择一条命令，并加上 --python <venv 路径>：",
+        "commands": [
+          { "label": "CUDA 12.1", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 --index-url https://download.pytorch.org/whl/cu121" },
+          { "label": "CUDA 11.8", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 --index-url https://download.pytorch.org/whl/cu118" },
+          { "label": "CPU",       "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5" }
+        ],
+        "docs": "https://pytorch.org/get-started/locally/"
+      }
+    },
+    {
+      "type": "install_uv_package",
+      "name": "使用 uv 在 venv 中安装 voxcpm",
+      "package": "voxcpm",
+      "import_as": ["torch", "voxcpm"],
+      "venv_dir": ".venv",
+      "spec": "voxcpm",
+      "install_hint": {
+        "intro": "voxcpm 安装失败或导入校验出错。可手动执行（注意 --python 指向 venv）：",
+        "commands": [
+          { "label": "Windows", "cmd": "uv pip install --python .venv/Scripts/python.exe voxcpm" },
+          { "label": "*nix",    "cmd": "uv pip install --python .venv/bin/python voxcpm" },
+          { "label": "调试导入", "cmd": ".venv/Scripts/python.exe -c \"import torch; import voxcpm\"" }
+        ],
+        "docs": "https://pypi.org/project/voxcpm/"
       }
     }
   ]

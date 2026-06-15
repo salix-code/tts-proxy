@@ -38,7 +38,7 @@ var nvccRe = regexp.MustCompile(`release\s+(\d+\.\d+(?:\.\d+)?)`)
 var smiRe = regexp.MustCompile(`CUDA Version:\s*(\d+\.\d+(?:\.\d+)?)`)
 
 // CheckCUDA 是 check_cuda 规则的处理器。
-func CheckCUDA(rule install.Rule) (string, error) {
+func CheckCUDA(rule install.Rule, _ *install.HandlerContext) (string, error) {
 	var spec CheckCUDARule
 	if err := json.Unmarshal(rule.Raw, &spec); err != nil {
 		return "", fmt.Errorf("解析规则字段失败: %w", err)

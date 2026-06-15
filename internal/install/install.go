@@ -23,7 +23,9 @@ type Rule struct {
 	Name   string   `json:"name,omitempty"`
 	OS     []string `json:"os,omitempty"`
 	SkipOS []string `json:"skip_os,omitempty"`
-	Raw    json.RawMessage
+	// Fatal 为 true 时，本规则失败将直接终止安装，不再询问用户是否继续。
+	Fatal bool `json:"fatal,omitempty"`
+	Raw   json.RawMessage
 }
 
 // UnmarshalJSON 在解析常规字段的同时把整段 JSON 存到 Raw 里。
@@ -91,7 +93,16 @@ func Load(path string) (*Config, error) {
 
 // Handler 是单条规则的处理函数。
 // 返回向用户展示的字符串和错误。
-type Handler func(rule Rule) (string, error)
+// ctx 提供 Confirm（询问 [Y/N]）与 Out（实时输出）等交互能力，
+// 当 handler 想在内部完成「失败 → 询问 → 自动修复」流程时使用；不需要时可忽略。
+type Handler func(rule Rule, ctx *HandlerContext) (string, error)
+
+// HandlerContext 把 Runner 的交互能力暴露给 Handler。
+// 暂时只包含两项最常用的：用户确认与实时输出。
+type HandlerContext struct {
+	Confirm Confirm
+	Out     io.Writer
+}
 
 // Confirm 在某条规则失败后由 Runner 调用，让上层决定继续还是结束。
 // 实参 prompt 形如「是否已经处理好？继续下一步? [Y/N]:」。
@@ -153,7 +164,8 @@ func (r *Runner) runWithOS(cfg *Config, currentOS string, out io.Writer, confirm
 		}
 
 		fmt.Fprintf(out, "[%d] 执行 %s\n", idx, label)
-		text, runErr := h(rule)
+		ctx := &HandlerContext{Confirm: confirm, Out: out}
+		text, runErr := h(rule, ctx)
 		writeIndented(out, text)
 
 		if runErr == nil {
@@ -164,6 +176,11 @@ func (r *Runner) runWithOS(cfg *Config, currentOS string, out io.Writer, confirm
 		allOK = false
 		fmt.Fprintf(out, "    !! 失败: %v\n", runErr)
 		fmt.Fprintf(out, "    步骤 [%d] %s 未通过；请按上面的提示处理后再回到这里。\n", idx, label)
+
+		if rule.Fatal {
+			fmt.Fprintf(out, "    步骤 [%d] %s 是必须项 (fatal=true)，安装中止。\n", idx, label)
+			return allOK, nil
+		}
 
 		if confirm == nil {
 			fmt.Fprintln(out, "    （未提供交互回调，默认中止）")

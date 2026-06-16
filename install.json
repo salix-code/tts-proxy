@@ -50,19 +50,22 @@
     },
     {
       "type": "install_uv_package",
-      "name": "使用 uv 检查并安装 PyTorch（>= 2.5，使用 .venv 的 Python）",
+      "name": "使用 uv 检查并安装 PyTorch 全家桶（>= 2.5，使用 .venv 的 Python）",
       "package": "torch",
-      "import_as": ["torch"],
+      "import_as": ["torch", "torchaudio"],
       "venv_dir": ".venv",
       "min_version": "2.5.0",
-      "install_args": ["--index-url", "https://download.pytorch.org/whl/cu121"],
+      "install_args": [
+        "--index-url", "https://download.pytorch.org/whl/cu121",
+        "torchaudio"
+      ],
       "spec": "torch>=2.5",
       "install_hint": {
         "intro": "PyTorch 安装失败。请按你的 CUDA 环境手动选择一条命令，并加上 --python <venv 路径>：",
         "commands": [
-          { "label": "CUDA 12.1", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 --index-url https://download.pytorch.org/whl/cu121" },
-          { "label": "CUDA 11.8", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 --index-url https://download.pytorch.org/whl/cu118" },
-          { "label": "CPU",       "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5" }
+          { "label": "CUDA 12.1", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 torchaudio --index-url https://download.pytorch.org/whl/cu121" },
+          { "label": "CUDA 11.8", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 torchaudio --index-url https://download.pytorch.org/whl/cu118" },
+          { "label": "CPU",       "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 torchaudio" }
         ],
         "docs": "https://pytorch.org/get-started/locally/"
       }
@@ -71,7 +74,7 @@
       "type": "install_uv_package",
       "name": "使用 uv 在 venv 中安装 voxcpm",
       "package": "voxcpm",
-      "import_as": ["torch", "voxcpm"],
+      "import_as": ["torch", "torchaudio", "voxcpm"],
       "venv_dir": ".venv",
       "spec": "voxcpm",
       "install_hint": {
@@ -79,9 +82,100 @@
         "commands": [
           { "label": "Windows", "cmd": "uv pip install --python .venv/Scripts/python.exe voxcpm" },
           { "label": "*nix",    "cmd": "uv pip install --python .venv/bin/python voxcpm" },
-          { "label": "调试导入", "cmd": ".venv/Scripts/python.exe -c \"import torch; import voxcpm\"" }
+          { "label": "调试导入", "cmd": ".venv/Scripts/python.exe -c \"import torch; import torchaudio; import voxcpm\"" }
         ],
         "docs": "https://pypi.org/project/voxcpm/"
+      }
+    },
+    {
+      "type": "install_uv_package",
+      "name": "使用 uv 在 venv 中安装 huggingface_hub[cli]（提供 huggingface-cli / hf 命令，用于手动下载模型）",
+      "package": "huggingface_hub[cli]",
+      "import_as": ["huggingface_hub"],
+      "venv_dir": ".venv",
+      "spec": "huggingface_hub[cli]",
+      "install_hint": {
+        "intro": "huggingface_hub[cli] 安装失败。可手动执行（注意 --python 指向 venv）：",
+        "commands": [
+          { "label": "Windows", "cmd": "uv pip install --python .venv/Scripts/python.exe \"huggingface_hub[cli]\"" },
+          { "label": "*nix",    "cmd": "uv pip install --python .venv/bin/python \"huggingface_hub[cli]\"" },
+          { "label": "镜像下载示例", "cmd": "set HF_ENDPOINT=https://hf-mirror.com && .venv\\Scripts\\huggingface-cli.exe download openbmb/VoxCPM-0.5B" }
+        ],
+        "docs": "https://huggingface.co/docs/huggingface_hub/guides/cli"
+      }
+    },
+    {
+      "type": "install_uv_package",
+      "name": "使用 uv 在 venv 中安装 modelscope（VoxCPM 的 ZipEnhancer 降噪模型从 ModelScope 拉取，HF 镜像无法替代）",
+      "package": "modelscope",
+      "import_as": ["modelscope"],
+      "venv_dir": ".venv",
+      "spec": "modelscope",
+      "install_hint": {
+        "intro": "modelscope 安装失败。可手动执行（注意 --python 指向 venv）：",
+        "commands": [
+          { "label": "Windows", "cmd": "uv pip install --python .venv/Scripts/python.exe modelscope" },
+          { "label": "*nix",    "cmd": "uv pip install --python .venv/bin/python modelscope" },
+          { "label": "手动下载 ZipEnhancer", "cmd": ".venv\\Scripts\\modelscope.exe download --model iic/speech_zipenhancer_ans_multiloss_16k_base" }
+        ],
+        "docs": "https://www.modelscope.cn/docs"
+      }
+    },
+    {
+      "type": "download_models",
+      "name": "预下载 voxcpm 用到的模型到 ./models（统一走 ModelScope，国内更稳）",
+      "venv_dir": ".venv",
+      "confirm_prompt": "首次运行经常因网络问题下载失败，建议预先下载模型。是否现在下载? [Y/N]: ",
+      "models": [
+        {
+          "source": "modelscope",
+          "repo": "OpenBMB/VoxCPM2",
+          "local_dir": "models/VoxCPM2",
+          "skip_if_exists": true,
+          "note": "VoxCPM2 主模型（支持文字描述音色 / 参考音频克隆）"
+        },
+        {
+          "source": "modelscope",
+          "repo": "iic/speech_zipenhancer_ans_multiloss_16k_base",
+          "local_dir": "models/ZipEnhancer",
+          "skip_if_exists": true,
+          "note": "ZipEnhancer 降噪模型"
+        }
+      ],
+      "install_hint": {
+        "intro": "全部模型下载失败。可手动重试（在项目根目录执行）：",
+        "commands": [
+          { "label": "VoxCPM2 主模型",  "cmd": ".venv\\Scripts\\modelscope.exe download --model OpenBMB/VoxCPM2 --local_dir models\\VoxCPM2" },
+          { "label": "ZipEnhancer 降噪", "cmd": ".venv\\Scripts\\modelscope.exe download --model iic/speech_zipenhancer_ans_multiloss_16k_base --local_dir models\\ZipEnhancer" },
+          { "label": "测试网络",         "cmd": "curl -I https://www.modelscope.cn" }
+        ]
+      }
+    },
+    {
+      "type": "run_venv_cli",
+      "name": "用 voxcpm 生成第一个测试音效（VoxCPM2 + 文字描述音色，完全离线）",
+      "venv_dir": ".venv",
+      "cli": "voxcpm",
+      "args": [
+        "design",
+        "--text", "Hello from VoxCPM2!",
+        "--control", "warm female voice, calm and friendly",
+        "--output", "out.wav",
+        "--model-path", "models/VoxCPM2",
+        "--zipenhancer-path", "models/ZipEnhancer",
+        "--local-files-only"
+      ],
+      "confirm_prompt": "已检测到 voxcpm CLI，是否创建第一个音效来测试一下? [Y/N]: ",
+      "skip_if_missing": true,
+      "output_file": "out.wav",
+      "install_hint": {
+        "intro": "voxcpm 命令行执行失败。可手动尝试（请确认 models 目录下已下载主模型与降噪模型）：",
+        "commands": [
+          { "label": "Windows", "cmd": ".venv\\Scripts\\voxcpm.exe design --text \"Hello from VoxCPM2!\" --control \"warm female voice\" --output out.wav --model-path models\\VoxCPM2 --zipenhancer-path models\\ZipEnhancer --local-files-only" },
+          { "label": "*nix",    "cmd": ".venv/bin/voxcpm design --text \"Hello from VoxCPM2!\" --control \"warm female voice\" --output out.wav --model-path models/VoxCPM2 --zipenhancer-path models/ZipEnhancer --local-files-only" },
+          { "label": "禁用降噪", "cmd": ".venv\\Scripts\\voxcpm.exe design --text \"Hello from VoxCPM2!\" --output out.wav --model-path models\\VoxCPM2 --no-denoiser --local-files-only" },
+          { "label": "查看帮助", "cmd": ".venv\\Scripts\\voxcpm.exe design --help" }
+        ]
       }
     }
   ]

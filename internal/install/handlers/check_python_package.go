@@ -14,8 +14,11 @@ import (
 //	{
 //	  "type": "check_python_package",
 //	  "name": "检查PyTorch版本",
-//	  "package": "torch",                       // 必填，import 用的包名
-//	  "import_as": "torch",                     // 可选，import 时实际使用的名字（缺省 = package）
+//	  "package": "torch",                       // 必填，pip 名（用于错误提示等）
+//	  "import_as": "torch",                     // 可选，import 用名（兼容旧写法）
+//	  "import_as": ["torch", "voxcpm"],         // 推荐：按顺序逐个 import；
+//	                                            //   - 第一个失败立刻报错，避免被后续假阳性掩盖；
+//	                                            //   - 最后一项被视为「目标包」，用它读 __version__ 做版本校验。
 //	  "python_candidates": ["python", "python3", "py"],  // 可选，查找 python 解释器
 //	  "min_version": "2.5.0",                   // 可选，最低版本（前闭区间）
 //	  "max_version": "3.0.0",                   // 可选，最高版本（前开区间）
@@ -29,7 +32,7 @@ import (
 //	}
 type CheckPythonPackageRule struct {
 	Package          string       `json:"package"`
-	ImportAs         string       `json:"import_as,omitempty"`
+	ImportAs         StringList   `json:"import_as,omitempty"`
 	PythonCandidates []string     `json:"python_candidates,omitempty"`
 	MinVersion       string       `json:"min_version,omitempty"`
 	MaxVersion       string       `json:"max_version,omitempty"`
@@ -54,12 +57,15 @@ func CheckPythonPackage(rule install.Rule, _ *install.HandlerContext) (string, e
 	if spec.Package == "" {
 		return "", fmt.Errorf("package 不能为空")
 	}
-	if spec.ImportAs == "" {
-		spec.ImportAs = spec.Package
+	if len(spec.ImportAs) == 0 {
+		spec.ImportAs = StringList{spec.Package}
 	}
 	if len(spec.PythonCandidates) == 0 {
 		spec.PythonCandidates = []string{"python", "python3", "py"}
 	}
+
+	// import_as 的最后一项视为「目标包」：读它的版本来做 min/max 校验。
+	versionTarget := spec.ImportAs[len(spec.ImportAs)-1]
 
 	pyName, pyPath, err := findPython(spec.PythonCandidates)
 	if err != nil {
@@ -68,47 +74,36 @@ func CheckPythonPackage(rule install.Rule, _ *install.HandlerContext) (string, e
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "使用解释器 %s (%s)\n", pyName, pyPath)
+	if len(spec.ImportAs) > 1 {
+		fmt.Fprintf(&b, "import 顺序: %s\n", strings.Join(spec.ImportAs, " → "))
+	}
 
-	// 用一行 Python 拿到版本号；版本字段未知时也尝试常见兜底。
-	script := fmt.Sprintf(
-		`import importlib, sys
-try:
-    m = importlib.import_module(%q)
-except Exception as e:
-    sys.stderr.write("IMPORT_ERROR: " + repr(e))
-    sys.exit(2)
-v = getattr(m, "__version__", None) or getattr(m, "VERSION", None)
-if v is None:
-    sys.stderr.write("NO_VERSION_ATTR")
-    sys.exit(3)
-print(v)
-`, spec.ImportAs)
+	// 1) 先按顺序导入除最后一项以外的依赖；第一个失败立刻返回，避免被假阳性掩盖。
+	if err := verifyImports(&b, pyName, spec.ImportAs[:len(spec.ImportAs)-1]); err != nil {
+		return strings.TrimRight(b.String(), "\n"),
+			fmt.Errorf("前置 import 失败: %v%s", err,
+				renderHint(spec.InstallHint, spec.Package))
+	}
 
-	cmd := exec.Command(pyName, "-c", script)
-	cmd.Env = utf8Env()
-	out, err := cmd.Output()
+	// 2) 用目标包读取版本号
+	ver, err := readPackageVersion(pyName, versionTarget)
 	if err != nil {
-		stderr := ""
-		if ee, ok := err.(*exec.ExitError); ok {
-			stderr = strings.TrimSpace(string(ee.Stderr))
-		}
 		switch {
-		case strings.HasPrefix(stderr, "IMPORT_ERROR"):
+		case isImportError(err):
 			return strings.TrimRight(b.String(), "\n"),
 				fmt.Errorf("未在 %s 中找到包 %q（%s）%s",
 					pyName, spec.Package,
-					strings.TrimPrefix(stderr, "IMPORT_ERROR: "),
+					strings.TrimPrefix(err.Error(), "IMPORT_ERROR: "),
 					renderHint(spec.InstallHint, spec.Package))
-		case strings.HasPrefix(stderr, "NO_VERSION_ATTR"):
+		case strings.HasPrefix(err.Error(), "NO_VERSION_ATTR"):
 			return strings.TrimRight(b.String(), "\n"),
 				fmt.Errorf("包 %q 未暴露 __version__ 属性，无法判断版本", spec.Package)
 		default:
 			return strings.TrimRight(b.String(), "\n"),
-				fmt.Errorf("调用 python 失败: %v；stderr=%s", err, stderr)
+				fmt.Errorf("调用 python 失败: %v", err)
 		}
 	}
 
-	ver := strings.TrimSpace(string(out))
 	// PyTorch 版本里可能带 "+cu121" 这样的本地标记；只取数字段做比较，原串照常展示。
 	clean := versionRe.FindString(ver)
 	if clean == "" {

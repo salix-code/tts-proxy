@@ -231,12 +231,17 @@ func venvPython(venvDir string) (string, error) {
 // 子进程的环境通过 utf8Env() 注入 PYTHONIOENCODING=utf-8 / PYTHONUTF8=1，避免在
 // Windows GBK 控制台下报错时输出 "锟斤拷" 样的乱码而误导排错。
 func readPackageVersion(python, importAs string) (string, error) {
+	// 把 traceback 一起打到 stderr：DLL/ABI 类问题（Windows error 127、
+	// "找不到指定的程序" 等）只看 repr(e) 完全定位不到是哪个 .pyd / .dll，
+	// 多输出几行即可显著降低排错成本。
 	script := fmt.Sprintf(
-		`import importlib, sys
+		`import importlib, sys, traceback
 try:
     m = importlib.import_module(%q)
 except Exception as e:
-    sys.stderr.write("IMPORT_ERROR: " + repr(e))
+    sys.stderr.write("IMPORT_ERROR: " + repr(e) + "\n")
+    sys.stderr.write("TRACEBACK:\n")
+    traceback.print_exc(file=sys.stderr)
     sys.exit(2)
 v = getattr(m, "__version__", None) or getattr(m, "VERSION", None)
 if v is None:

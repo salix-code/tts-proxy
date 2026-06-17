@@ -52,12 +52,26 @@ type DownloadModelsRule struct {
 }
 
 // ModelSpec 描述一个待下载模型。
+//
+// 多源候选：当指定了 Sources（>=2 项）时，会在下载前向用户询问选择哪个源。
+// 仅指定 Source/Repo（旧行为）时按单源直接下载，不询问。
 type ModelSpec struct {
-	Source       string `json:"source"`                   // "hf" | "modelscope"
-	Repo         string `json:"repo"`                     // 形如 "OpenBMB/VoxCPM-0.5B"
-	LocalDir     string `json:"local_dir,omitempty"`      // 可选；指定后不再依赖默认缓存路径
-	SkipIfExists bool   `json:"skip_if_exists,omitempty"` // 可选；local_dir 已存在且非空时跳过
-	Note         string `json:"note,omitempty"`           // 可选，给人看的说明
+	Source       string         `json:"source,omitempty"`         // "hf" | "modelscope" | "url"，单源用法
+	Repo         string         `json:"repo,omitempty"`           // 单源用法，形如 "OpenBMB/VoxCPM-0.5B"
+	URL          string         `json:"url,omitempty"`            // source=url 时的直链；支持单文件或 .tar.bz2/.tar.gz/.tar/.zip（自动解压）
+	Sources      []SourceOption `json:"sources,omitempty"`        // 多源候选；非空时优先于 Source/Repo
+	SourcePrompt string         `json:"source_prompt,omitempty"`  // 多源询问语；为空时使用默认 "是否使用 HuggingFace 源? Y=HuggingFace / N=ModelScope"
+	LocalDir     string         `json:"local_dir,omitempty"`      // 可选；指定后不再依赖默认缓存路径
+	SkipIfExists bool           `json:"skip_if_exists,omitempty"` // 可选；local_dir 已存在且非空时跳过
+	Note         string         `json:"note,omitempty"`           // 可选，给人看的说明
+}
+
+// SourceOption 表示多源候选中的一个具体源。
+type SourceOption struct {
+	Source string `json:"source"`          // "hf" | "modelscope" | "url"
+	Repo   string `json:"repo,omitempty"`  // hf/modelscope 用：仓库名
+	URL    string `json:"url,omitempty"`   // url 用：直链
+	Label  string `json:"label,omitempty"` // 给用户看的中文标签，缺省自动生成
 }
 
 // DownloadModels 是 download_models 规则的处理器。
@@ -121,14 +135,31 @@ func DownloadModels(rule install.Rule, ctx *install.HandlerContext) (string, err
 	successCount := 0
 	for i, m := range spec.Models {
 		idx := i + 1
-		label := fmt.Sprintf("[%d/%d] %s (%s)", idx, len(spec.Models), m.Repo, m.Source)
+		label := fmt.Sprintf("[%d/%d] %s", idx, len(spec.Models), describeModel(m))
 		if m.Note != "" {
 			label += " — " + m.Note
 		}
 		fmt.Fprintf(&b, "\n%s\n", label)
 
-		if strings.TrimSpace(m.Repo) == "" {
-			fmt.Fprintf(&b, "× repo 为空，跳过\n")
+		// 多源候选：询问用户选哪个源，把选中的 source/repo 回填到 m。
+		if len(m.Sources) > 0 {
+			chosen, ok, askErr := chooseSource(ctx, m, &b)
+			if askErr != nil {
+				return strings.TrimRight(b.String(), "\n"),
+					fmt.Errorf("读取用户选择失败: %w", askErr)
+			}
+			if !ok {
+				fmt.Fprintf(&b, "× 没有交互回调，跳过此模型\n")
+				continue
+			}
+			m.Source = chosen.Source
+			m.Repo = chosen.Repo
+			m.URL = chosen.URL
+			fmt.Fprintf(&b, "已选: %s\n", sourceLabel(chosen))
+		}
+
+		if strings.TrimSpace(m.Repo) == "" && strings.TrimSpace(m.URL) == "" {
+			fmt.Fprintf(&b, "× repo/url 均为空，跳过\n")
 			continue
 		}
 
@@ -146,6 +177,17 @@ func DownloadModels(rule install.Rule, ctx *install.HandlerContext) (string, err
 		// 判定标准：目录存在且至少含一个非隐藏文件/子目录。
 		if m.SkipIfExists && resolvedLocalDir != "" && dirHasContent(resolvedLocalDir) {
 			fmt.Fprintf(&b, "↺ 目录已存在且非空，跳过下载（视作成功）\n")
+			successCount++
+			continue
+		}
+
+		// url 源走 Go 内置 HTTP 下载 + 自动解压，不依赖 venv cli。
+		if strings.EqualFold(strings.TrimSpace(m.Source), "url") {
+			if err := downloadURLAndMaybeExtract(m.URL, resolvedLocalDir, &b); err != nil {
+				fmt.Fprintf(&b, "× 下载失败: %v\n", err)
+				continue
+			}
+			fmt.Fprintf(&b, "√ 下载完成\n")
 			successCount++
 			continue
 		}
@@ -191,6 +233,75 @@ func dirHasContent(dir string) bool {
 		return false
 	}
 	return len(entries) > 0
+}
+
+// describeModel 给 ModelSpec 生成日志用的简短描述。
+// 多源时拼出所有候选；单源时给出 repo (source)。
+func describeModel(m ModelSpec) string {
+	if len(m.Sources) > 0 {
+		labels := make([]string, 0, len(m.Sources))
+		for _, s := range m.Sources {
+			labels = append(labels, fmt.Sprintf("%s/%s", s.Source, sourceTarget(s.Repo, s.URL)))
+		}
+		return "[多源] " + strings.Join(labels, " | ")
+	}
+	return fmt.Sprintf("%s (%s)", sourceTarget(m.Repo, m.URL), m.Source)
+}
+
+// chooseSource 让用户在多源候选中二选一。
+// 当前实现是 Y/N 二元提问：第 1 个源 (Y) vs 第 2 个源 (N)；
+// >2 个候选时只取前两个，多余的会忽略并打印提示。
+// 没有交互回调时返回 ok=false 让上层跳过。
+func chooseSource(ctx *install.HandlerContext, m ModelSpec, b *strings.Builder) (SourceOption, bool, error) {
+	if ctx == nil || ctx.Confirm == nil {
+		return SourceOption{}, false, nil
+	}
+	if len(m.Sources) == 1 {
+		return m.Sources[0], true, nil
+	}
+	if len(m.Sources) > 2 {
+		fmt.Fprintf(b, "提示: 当前只支持二选一，使用前两个候选源\n")
+	}
+	first, second := m.Sources[0], m.Sources[1]
+	prompt := strings.TrimSpace(m.SourcePrompt)
+	if prompt == "" {
+		prompt = fmt.Sprintf("选择下载源: Y=%s / N=%s [Y/N]: ",
+			sourceLabel(first), sourceLabel(second))
+	}
+	yes, err := ctx.Confirm(prompt)
+	if err != nil {
+		return SourceOption{}, false, err
+	}
+	if yes {
+		return first, true, nil
+	}
+	return second, true, nil
+}
+
+// sourceLabel 返回 SourceOption 给用户看的标签，缺省时根据 source 自动生成。
+func sourceLabel(s SourceOption) string {
+	if strings.TrimSpace(s.Label) != "" {
+		return s.Label
+	}
+	target := sourceTarget(s.Repo, s.URL)
+	switch strings.ToLower(strings.TrimSpace(s.Source)) {
+	case "hf", "huggingface":
+		return "HuggingFace (" + target + ")"
+	case "modelscope", "ms":
+		return "ModelScope (" + target + ")"
+	case "url":
+		return "直链 (" + target + ")"
+	default:
+		return s.Source + " (" + target + ")"
+	}
+}
+
+// sourceTarget 给日志用：优先打印 repo，没有就显示 url。
+func sourceTarget(repo, urlStr string) string {
+	if strings.TrimSpace(repo) != "" {
+		return repo
+	}
+	return urlStr
 }
 
 // resolveDownloader 根据 source 在 venv 里找对应 cli，并组装下载子命令。

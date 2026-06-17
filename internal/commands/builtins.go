@@ -97,6 +97,8 @@ func RegisterBuiltins(r *Registry, reader *bufio.Reader, out io.Writer) {
 			return Result{Output: summary}, nil
 		},
 	})
+
+	RegisterVoiceCommands(r, out)
 }
 
 // makeYesNoConfirm 用同一份 stdin reader 做 [Y/N] 询问，避免与外层 REPL 抢输入。

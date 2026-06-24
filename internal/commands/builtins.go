@@ -80,6 +80,7 @@ func RegisterBuiltins(r *Registry, reader *bufio.Reader, out io.Writer) {
 			runner.Register("create_uv_venv", handlers.CreateUVVenv)
 			runner.Register("install_uv_package", handlers.InstallUVPackage)
 			runner.Register("install_cuda_uv", handlers.InstallCUDAUV)
+			runner.Register("install_pytorch", handlers.InstallPytorch)
 			runner.Register("ensure_uv", handlers.EnsureUV)
 			runner.Register("run_venv_cli", handlers.RunVenvCLI)
 			runner.Register("download_models", handlers.DownloadModels)

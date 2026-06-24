@@ -47,23 +47,38 @@
       }
     },
     {
-      "type": "install_uv_package",
-      "name": "安装 PyTorch (>= 2.5, CUDA 12.1)",
-      "package": "torch",
-      "import_as": ["torch", "torchaudio"],
+      "type": "install_pytorch",
+      "name": "安装 PyTorch（按显卡 sm 自适配，失败可升级 nightly）",
       "venv_dir": ".venv",
-      "min_version": "2.5.0",
-      "install_args": [
-        "--index-url", "https://download.pytorch.org/whl/cu121",
-        "torchaudio"
+      "import_as": ["torch", "torchaudio"],
+      "extra_packages": ["torchaudio"],
+      "verify_gpu": true,
+      "upgrade_on_gpu_fail": true,
+      "sm_matrix": [
+        { "sm": "7.5",  "spec": "torch>=1.13", "index_url": "https://download.pytorch.org/whl/cu118", "note": "RTX 20xx / T4" },
+        { "sm": "8.0",  "spec": "torch>=1.12", "index_url": "https://download.pytorch.org/whl/cu118", "note": "A100" },
+        { "sm": "8.6",  "spec": "torch>=1.13", "index_url": "https://download.pytorch.org/whl/cu121", "note": "RTX 30xx" },
+        { "sm": "8.9",  "spec": "torch>=2.1",  "index_url": "https://download.pytorch.org/whl/cu124", "note": "RTX 40xx" },
+        { "sm": "9.0",  "spec": "torch>=2.1",  "index_url": "https://download.pytorch.org/whl/cu124", "note": "H100" },
+        { "sm": "10.0", "spec": "torch>=2.6",  "index_url": "https://download.pytorch.org/whl/cu126", "note": "B200" },
+        { "sm": "12.0", "spec": "torch",       "index_url": "https://download.pytorch.org/whl/nightly/cu128", "pre": true, "note": "RTX 50xx" }
       ],
-      "spec": "torch>=2.5",
+      "nightly": {
+        "spec": "torch",
+        "index_url": "https://download.pytorch.org/whl/nightly/cu128",
+        "pre": true
+      },
+      "cpu_fallback": {
+        "spec": "torch",
+        "index_url": "https://download.pytorch.org/whl/cpu"
+      },
       "install_hint": {
-        "intro": "PyTorch 安装失败。按 CUDA 版本手动选择：",
+        "intro": "PyTorch 安装失败。可手动按 CUDA 版本挑一行：",
         "commands": [
-          { "label": "CUDA 12.1", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 torchaudio --index-url https://download.pytorch.org/whl/cu121" },
-          { "label": "CUDA 11.8", "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 torchaudio --index-url https://download.pytorch.org/whl/cu118" },
-          { "label": "CPU",       "cmd": "uv pip install --python .venv/Scripts/python.exe torch>=2.5 torchaudio" }
+          { "label": "CUDA 12.4 (RTX 40xx)", "cmd": "uv pip install --python .venv/Scripts/python.exe torch torchaudio --index-url https://download.pytorch.org/whl/cu124" },
+          { "label": "CUDA 12.1 (RTX 30xx)", "cmd": "uv pip install --python .venv/Scripts/python.exe torch torchaudio --index-url https://download.pytorch.org/whl/cu121" },
+          { "label": "Nightly (RTX 50xx)",   "cmd": "uv pip install --python .venv/Scripts/python.exe --pre torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128" },
+          { "label": "CPU",                  "cmd": "uv pip install --python .venv/Scripts/python.exe torch torchaudio --index-url https://download.pytorch.org/whl/cpu" }
         ],
         "docs": "https://pytorch.org/get-started/locally/"
       }

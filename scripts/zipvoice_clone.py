@@ -107,21 +107,36 @@ def ensure_lexicon(model_dir: str, debug: bool = False) -> str:
     转成 sherpa-onnx 期望的 MatchaTtsLexicon 两列格式：
       <词> <声母0> <韵母音调> <声母0> <韵母音调> ...
 
+    会读取 tokens.txt：拆分后任一 phone 不在 tokens.txt 中（如 'er1' 等模型未训练的
+    边缘读音），整条词条直接丢弃，避免运行时报 "Unknown token"。
+
     缓存：转换结果落到 <model_dir>/lexicon.txt，下次直接复用。
     """
     target = os.path.join(model_dir, "lexicon.txt")
     pinyin_raw = os.path.join(model_dir, "pinyin.raw")
+    tokens_path = os.path.join(model_dir, "tokens.txt")
 
     if os.path.exists(target):
         return target
     if not os.path.exists(pinyin_raw):
         sys.exit(f"[zipvoice_clone] 既无 lexicon.txt 也无 pinyin.raw: {model_dir}")
+    if not os.path.exists(tokens_path):
+        sys.exit(f"[zipvoice_clone] 缺 tokens.txt: {tokens_path}")
 
     if debug:
         print(f"[zipvoice_clone] 首次运行：从 {pinyin_raw} 生成 {target}", flush=True)
 
+    # 加载合法 phone 集合，用于过滤不被模型识别的边缘读音
+    valid_phones: set[str] = set()
+    with open(tokens_path, encoding="utf-8") as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if parts and parts[0]:
+                valid_phones.add(parts[0])
+
     written = 0
     skipped = 0
+    dropped_phones: dict[str, int] = {}
     tmp = target + ".part"
     with open(pinyin_raw, encoding="utf-8") as fin, open(tmp, "w", encoding="utf-8") as fout:
         for line in fin:
@@ -152,12 +167,22 @@ def ensure_lexicon(model_dir: str, debug: bool = False) -> str:
             if not ok or not phones:
                 skipped += 1
                 continue
+            # 过滤模型未收录的边缘 phone（如某些 er1 读音）
+            unknown = [p for p in phones if p not in valid_phones]
+            if unknown:
+                for u in unknown:
+                    dropped_phones[u] = dropped_phones.get(u, 0) + 1
+                skipped += 1
+                continue
             fout.write(word + " " + " ".join(phones) + "\n")
             written += 1
     os.replace(tmp, target)
     if debug:
         print(f"[zipvoice_clone] lexicon 写入 {written} 条，跳过 {skipped} 条 → {target}",
               flush=True)
+        if dropped_phones:
+            top = sorted(dropped_phones.items(), key=lambda x: -x[1])[:5]
+            print(f"[zipvoice_clone] 因 phone 不在 tokens 中而丢弃: {top}", flush=True)
     return target
 
 
